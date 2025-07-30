@@ -12,7 +12,6 @@ import { CodeEditor } from "@/components/editor/code-editor";
 import { PythonLogo } from "@/components/ui/python-logo";
 import { AutoSaveIndicator } from "@/components/ui/auto-save-indicator";
 import { ExecutionTime } from "@/components/ui/execution-time";
-import { StatusIndicator } from "@/components/ui/loading-skeleton";
 import { useTheme } from "next-themes";
 import { compressToEncodedURIComponent, decompressFromEncodedURIComponent } from "lz-string";
 import { toast } from "sonner";

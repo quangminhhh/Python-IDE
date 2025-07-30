@@ -1,6 +1,7 @@
 /// <reference lib="webworker" />
 
 // Classic worker: KHÔNG dùng ESM import ở top-level
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 declare function loadPyodide(options?: Record<string, unknown>): Promise<PyodideInterface>;
 
 interface PyodideInterface {
@@ -150,4 +151,5 @@ ctx.onmessage = (async (e: MessageEvent<InMsg>) => {
       ctx.postMessage({ type: "result", ok: false, error: errorMessage } as OutMsg);
     }
   }
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 }) as unknown as (this: DedicatedWorkerGlobalScope, ev: MessageEvent<InMsg>) => any;

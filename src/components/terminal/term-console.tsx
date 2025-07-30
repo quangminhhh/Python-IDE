@@ -19,7 +19,9 @@ type Props = {
 export const TermConsole = React.forwardRef<TermConsoleHandle, Props>(
   ({ waitingInput, onSubmitLine, onCtrlC, theme = "light" }, ref) => {
     const containerRef = React.useRef<HTMLDivElement | null>(null);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const termRef = React.useRef<any | null>(null);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const fitRef = React.useRef<any | null>(null);
     const initialized = React.useRef(false);
     const lineBufRef = React.useRef<string>("");
@@ -34,6 +36,7 @@ export const TermConsole = React.forwardRef<TermConsoleHandle, Props>(
     const waitingRef = React.useRef(waitingInput);
     React.useEffect(() => { waitingRef.current = waitingInput; }, [waitingInput]);
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const applyTheme = React.useCallback((term: any, mode: "light" | "dark") => {
       const themeObj =
         mode === "dark"
@@ -63,13 +66,17 @@ export const TermConsole = React.forwardRef<TermConsoleHandle, Props>(
       if (initialized.current) return;
       initialized.current = true;
 
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       let term: any;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       let fit: any;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       let disposeOnData: any;
 
       (async () => {
         if (typeof window === "undefined") return;
 
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         await import("@xterm/xterm/css/xterm.css" as any);
         const { Terminal } = await import("@xterm/xterm");
         const { FitAddon } = await import("@xterm/addon-fit");
@@ -143,11 +150,16 @@ export const TermConsole = React.forwardRef<TermConsoleHandle, Props>(
 
         const onResize = () => { try { fit.fit(); } catch {} };
         window.addEventListener("resize", onResize);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (term as any)._onResizeCleanup = onResize;
       })();
 
       return () => {
+        if (disposeOnData) {
+          try { disposeOnData.dispose(); } catch {}
+        }
         if (termRef.current) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           try { window.removeEventListener("resize", (termRef.current as any)._onResizeCleanup); } catch {}
           try { termRef.current.dispose(); } catch {}
         }

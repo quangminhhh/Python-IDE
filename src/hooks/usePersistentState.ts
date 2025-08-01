@@ -1,31 +1,34 @@
 import * as React from 'react';
 
-export function usePersistentState<T>(key: string, defaultValue: T): [T, React.Dispatch<React.SetStateAction<T>>] {
-  const [state, setState] = React.useState<T>(() => {
-    if (typeof window === 'undefined') return defaultValue;
+export function usePersistentState<T>(
+  key: string,
+  defaultValue: T,
+): [T, React.Dispatch<React.SetStateAction<T>>] {
+  const [state, setState] = React.useState<T>(defaultValue)
+
+  // Load from localStorage after initial render to avoid hydration mismatch
+  React.useEffect(() => {
     try {
-      const stored = window.localStorage.getItem(key);
+      const stored = window.localStorage.getItem(key)
       if (stored !== null) {
         try {
-          return JSON.parse(stored) as T;
+          setState(JSON.parse(stored) as T)
         } catch {
-          return stored as unknown as T;
+          setState(stored as unknown as T)
         }
       }
     } catch {
       // ignore
     }
-    return defaultValue;
-  });
+  }, [key])
 
   React.useEffect(() => {
-    if (typeof window === 'undefined') return;
     try {
-      window.localStorage.setItem(key, JSON.stringify(state));
+      window.localStorage.setItem(key, JSON.stringify(state))
     } catch {
       // ignore
     }
-  }, [key, state]);
+  }, [key, state])
 
-  return [state, setState];
+  return [state, setState]
 }

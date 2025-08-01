@@ -220,8 +220,6 @@ print("Hello,", name)
 
     console.log('spawnWorker called with isForRunning:', isForRunning, 'hasShownWelcome:', hasShownWelcomeRef.current);
 
-    console.log('spawnWorker called with isForRunning:', isForRunning, 'hasShownWelcome:', hasShownWelcomeRef.current);
-
     setupSharedBuffers();
     const w = new Worker(new URL("../../workers/pyodide.worker.ts", import.meta.url), {
       type: "classic",
@@ -576,7 +574,7 @@ print("Hello,", name)
       </header>
 
       <main className="flex-1 min-h-0 overflow-hidden">
-        <div className={`flex h-full ${isMobile ? 'flex-col' : 'flex-col'} ${isResizing ? 'select-none' : ''}`}>
+        <div className={`flex h-full flex-col ${isResizing ? 'select-none' : ''}`}>
           {/* Top Header Row - Shared between Editor and Console */}
           {!isMobile && (
             <div className="flex h-12 border-b border-border bg-muted/20">

@@ -17,6 +17,8 @@ import { useTheme } from "next-themes";
 import { compressToEncodedURIComponent, decompressFromEncodedURIComponent } from "lz-string";
 import { toast } from "sonner";
 import dynamic from "next/dynamic";
+import { usePersistentState } from "@/hooks/usePersistentState";
+import { usePythonWorker } from "@/hooks/usePythonWorker";
 
 type TermConsoleHandle = {
   write: (s: string) => void;
@@ -42,14 +44,6 @@ const FAST_SLEEP_PRELUDE = [
   "",
 ].join("\n");
 
-type WorkerOut =
-  | { type: "ready" }
-  | { type: "awaiting_input" }
-  | { type: "got_input" }
-  | { type: "stdout"; data: string }
-  | { type: "stderr"; data: string }
-  | { type: "result"; ok: true }
-  | { type: "result"; ok: false; error: string };
 
 const LS_KEY = "python-ide:code:v1";
 const LS_RESIZE_KEY = "python-ide:resize:v1";
@@ -66,74 +60,19 @@ export function AppShell() {
   React.useEffect(() => setMounted(true), []);
 
   // Resize state
-  const [leftWidth, setLeftWidth] = React.useState(50); // Phần trăm chiều rộng của editor
+  const [leftWidth, setLeftWidth] = usePersistentState<number>(LS_RESIZE_KEY, 50);
   const [isResizing, setIsResizing] = React.useState(false);
-  const [fontSize, setFontSize] = React.useState(DEFAULT_FONT_SIZE);
+  const [fontSize, setFontSize] = usePersistentState<number>(LS_FONT_SIZE_KEY, DEFAULT_FONT_SIZE);
   const resizeRef = React.useRef<HTMLDivElement>(null);
 
-  // Khôi phục tỷ lệ resize từ localStorage
-  React.useEffect(() => {
-    try {
-      const saved = window.localStorage.getItem(LS_RESIZE_KEY);
-      if (saved) {
-        const parsed = parseFloat(saved);
-        if (!isNaN(parsed) && parsed >= 25 && parsed <= 75) {
-          setLeftWidth(parsed);
-        }
-      }
-    } catch {
-      // ignore
-    }
-  }, []);
-
-  // Khôi phục font size từ localStorage
-  React.useEffect(() => {
-    try {
-      const saved = window.localStorage.getItem(LS_FONT_SIZE_KEY);
-      if (saved) {
-        const parsed = parseInt(saved);
-        if (!isNaN(parsed) && FONT_SIZES.includes(parsed as typeof FONT_SIZES[number])) {
-          setFontSize(parsed);
-        }
-      }
-    } catch {
-      // ignore
-    }
-  }, []);
-
-  // Lưu tỷ lệ resize vào localStorage
-  React.useEffect(() => {
-    const id = setTimeout(() => {
-      try {
-        window.localStorage.setItem(LS_RESIZE_KEY, leftWidth.toString());
-      } catch {
-        // ignore
-      }
-    }, DEBOUNCE_MS);
-    return () => clearTimeout(id);
-  }, [leftWidth]);
-
-  // Lưu font size vào localStorage
-  React.useEffect(() => {
-    const id = setTimeout(() => {
-      try {
-        window.localStorage.setItem(LS_FONT_SIZE_KEY, fontSize.toString());
-      } catch {
-        // ignore
-      }
-    }, DEBOUNCE_MS);
-    return () => clearTimeout(id);
-  }, [fontSize]);
-
   // Code & console
-  const [code, setCode] = React.useState<string>(`# Python console demo
+  const [code, setCode] = usePersistentState<string>(
+    LS_KEY,
+    `# Python console demo
 name = input("Your name: ")
 print("Hello,", name)
-`);
-  const [output, setOutput] = React.useState<string>("");
-  const [waitingInput, setWaitingInput] = React.useState<boolean>(false);
-  const [editorReady, setEditorReady] = React.useState(false);
-  const [isRunning, setIsRunning] = React.useState(false);
+`
+  );
   const hasShownWelcomeRef = React.useRef(false);
 
   // New states for enhancements
@@ -143,21 +82,22 @@ print("Hello,", name)
 
   const termRef = React.useRef<TermConsoleHandle | null>(null);
 
-  const append = React.useCallback((s: string) => {
-    setOutput(prev => (prev ? prev + s : s));
-    termRef.current?.write(s);
-  }, []);
+  const {
+    output,
+    setOutput,
+    isRunning,
+    waitingInput,
+    run: runWorker,
+    stop: stopWorker,
+    sendInput,
+  } = usePythonWorker(
+    s => termRef.current?.write(s),
+    {
+      onResult: () => setExecutionEndTime(Date.now()),
+    }
+  );
 
-  // Worker & SAB
-  const workerRef = React.useRef<Worker | null>(null);
-  const sabInputRef = React.useRef<SharedArrayBuffer | null>(null);
-  const lenViewRef = React.useRef<Int32Array | null>(null);
-  const bytesRef = React.useRef<Uint8Array | null>(null);
-  const sabInterruptRef = React.useRef<SharedArrayBuffer | null>(null);
-  const i8InterruptRef = React.useRef<Uint8Array | null>(null);
-  const encoder = React.useMemo(() => new TextEncoder(), []);
-
-  // Khôi phục code từ URL hash hoặc localStorage
+  // Khôi phục code từ URL hash (ưu tiên URL hơn localStorage)
   React.useEffect(() => {
     const hash = window.location.hash;
     const m = hash.match(/#code=([^&]+)/);
@@ -172,152 +112,28 @@ print("Hello,", name)
         // ignore
       }
     }
-    try {
-      const saved = window.localStorage.getItem(LS_KEY);
-      if (saved) setCode(saved);
-    } catch {
-      // ignore
-    }
-  }, []);
+  }, [setCode]);
 
-  // Autosave with status indicator
+  // Autosave indicator (localStorage handled by usePersistentState)
   React.useEffect(() => {
     setSaveStatus("saving");
-    const id = setTimeout(() => {
-      try {
-        window.localStorage.setItem(LS_KEY, code);
-        setSaveStatus("saved");
-      } catch {
-        setSaveStatus("error");
-      }
-    }, DEBOUNCE_MS);
+    const id = setTimeout(() => setSaveStatus("saved"), DEBOUNCE_MS);
     return () => clearTimeout(id);
   }, [code]);
 
-  // Tạo SharedArrayBuffer cho stdin & interrupt
-  const setupSharedBuffers = React.useCallback(() => {
-    const sabInput = new SharedArrayBuffer(4 + 4096);
-    sabInputRef.current = sabInput;
-    lenViewRef.current = new Int32Array(sabInput, 0, 1);
-    bytesRef.current = new Uint8Array(sabInput, 4);
-    const sabInterrupt = new SharedArrayBuffer(1);
-    sabInterruptRef.current = sabInterrupt;
-    i8InterruptRef.current = new Uint8Array(sabInterrupt);
-    i8InterruptRef.current[0] = 0;
-  }, []);
-
-  const killWorker = React.useCallback(() => {
-    if (workerRef.current) {
-      workerRef.current.terminate();
-      workerRef.current = null;
-    }
-    setWaitingInput(false);
-  }, []);
-
-  const spawnWorker = React.useCallback((isForRunning = false) => {
-    // Đảm bảo kill worker cũ trước khi tạo mới
-    killWorker();
-
-    console.log('spawnWorker called with isForRunning:', isForRunning, 'hasShownWelcome:', hasShownWelcomeRef.current);
-
-    setupSharedBuffers();
-    const w = new Worker(new URL("../../workers/pyodide.worker.ts", import.meta.url), {
-      type: "classic",
-      name: "pyodide-worker",
-    });
-
-    w.onmessage = (ev: MessageEvent<WorkerOut>) => {
-      const msg = ev.data;
-      switch (msg.type) {
-        case "ready":
-          if (isForRunning) {
-            append("Running...\n");
-          } else if (!hasShownWelcomeRef.current) {
-            // Chỉ hiển thị welcome một lần duy nhất
-            append("Welcome to Python IDE! Ready to execute your code.\n\n");
-            hasShownWelcomeRef.current = true;
-          }
-          break;
-        case "awaiting_input":
-          setWaitingInput(true);
-          termRef.current?.focus();
-          break;
-        case "got_input":
-          setWaitingInput(false);
-          break;
-        case "stdout":
-          append(msg.data);
-          break;
-        case "stderr":
-          append(msg.data);
-          break;
-        case "result":
-          append(msg.ok ? "\nExecution completed\n" : `\nError: ${msg.error}\n`);
-          setWaitingInput(false);
-          setIsRunning(false);
-          setExecutionEndTime(Date.now());
-          break;
-      }
-    };
-    w.onerror = (e) => append(`[worker error] ${e.message}\n`);
-
-    if (sabInputRef.current && sabInterruptRef.current) {
-      w.postMessage({
-        type: "init",
-        baseUrl: window.location.origin,
-        inputSAB: sabInputRef.current as SharedArrayBuffer,
-        interruptSAB: sabInterruptRef.current as SharedArrayBuffer,
-      });
-    }
-
-    workerRef.current = w;
-    return w;
-  }, [append, setupSharedBuffers, killWorker]);
-
-  const sendInputLine = React.useCallback(
-    (line: string) => {
-      const lenView = lenViewRef.current;
-      const bytes = bytesRef.current;
-      if (!workerRef.current || !lenView || !bytes) return;
-      const encoded = encoder.encode(line.endsWith("\n") ? line : line + "\n");
-      if (encoded.length > bytes.length) {
-        append(`[error] Input line too long (${encoded.length} > ${bytes.length})\n`);
-        return;
-      }
-      bytes.fill(0);
-      bytes.set(encoded, 0);
-      Atomics.store(lenView, 0, encoded.length);
-      Atomics.notify(lenView, 0, 1);
-    },
-    [append, encoder]
-  );
+  // Worker handled via usePythonWorker
 
   const onRun = React.useCallback(() => {
     setOutput("");
-    killWorker();
-    setIsRunning(true);
     setExecutionStartTime(Date.now());
     setExecutionEndTime(null);
-    const w = spawnWorker(true); // true = isForRunning
-    const codeToRun = FAST_SLEEP_PRELUDE + code; // luôn prepend prelude
-    w.postMessage({ type: "run", code: codeToRun });
-  }, [code, killWorker, spawnWorker]);
+    runWorker(FAST_SLEEP_PRELUDE + code);
+  }, [code, runWorker, setOutput]);
 
   const onStop = React.useCallback(() => {
-    const i8 = i8InterruptRef.current;
-    if (i8 && workerRef.current) {
-      i8[0] = 2; // SIGINT
-      append("^C\n");
-      setIsRunning(false); // Reset running state immediately
-      setExecutionEndTime(Date.now());
-      setTimeout(() => {
-        if (workerRef.current) {
-          append("[force stop]\n");
-          killWorker();
-        }
-      }, 400);
-    }
-  }, [append, killWorker]);
+    setExecutionEndTime(Date.now());
+    stopWorker();
+  }, [stopWorker]);
 
   // Shortcuts
   React.useEffect(() => {
@@ -364,9 +180,7 @@ print("Hello,", name)
 
   const onClear = () => {
     setOutput("");
-    killWorker();
-    setWaitingInput(false); // Reset trạng thái chờ input
-    setIsRunning(false); // Reset trạng thái chạy
+    stopWorker();
     hasShownWelcomeRef.current = false;
 
     // Force reset terminal để xóa tất cả bao gồm cả prompt đang chờ
@@ -384,32 +198,7 @@ print("Hello,", name)
     }
   };
 
-  // (CHỈNH) Pre‑warm Pyodide: chỉ khi editorReady === true
-  React.useEffect(() => {
-    if (!editorReady) return;
-
-    let canceled = false;
-    const warm = () => {
-      if (canceled) return;
-      if (!workerRef.current) {
-        const w = spawnWorker(false); // false = không phải chạy code, chỉ pre-warm
-        w.postMessage({ type: "ping" });
-      }
-    };
-
-    // @ts-expect-error requestIdleCallback có thể không có types
-    const id = window.requestIdleCallback
-      // ưu tiên chạy khi rảnh để không tranh băng thông với monaco
-      ? (window as Window & { requestIdleCallback: (cb: () => void, opts?: { timeout: number }) => number }).requestIdleCallback(warm, { timeout: 3000 })
-      : setTimeout(warm, 500);
-
-    return () => {
-      canceled = true;
-      // @ts-expect-error cancelIdleCallback có thể không có types
-      if (window.cancelIdleCallback) (window as Window & { cancelIdleCallback: (id: number) => void }).cancelIdleCallback(id);
-      else clearTimeout(id);
-    };
-  }, [editorReady, spawnWorker]);
+  // Pre‑warm Pyodide logic removed (handled inside worker hook if needed)
 
   // Handle resize functionality - Optimized for smooth performance
   const handleMouseDown = React.useCallback((e: React.MouseEvent) => {
@@ -446,7 +235,7 @@ print("Hello,", name)
 
     document.addEventListener('mousemove', handleMouseMove);
     document.addEventListener('mouseup', handleMouseUp);
-  }, []);
+  }, [setLeftWidth]);
 
   // Responsive breakpoint
   const [isMobile, setIsMobile] = React.useState(false);
@@ -467,18 +256,18 @@ print("Hello,", name)
     if (currentIndex < FONT_SIZES.length - 1) {
       setFontSize(FONT_SIZES[currentIndex + 1]);
     }
-  }, [fontSize]);
+  }, [fontSize, setFontSize]);
 
   const decreaseFontSize = React.useCallback(() => {
     const currentIndex = FONT_SIZES.indexOf(fontSize as typeof FONT_SIZES[number]);
     if (currentIndex > 0) {
       setFontSize(FONT_SIZES[currentIndex - 1]);
     }
-  }, [fontSize]);
+  }, [fontSize, setFontSize]);
 
   const resetFontSize = React.useCallback(() => {
     setFontSize(DEFAULT_FONT_SIZE);
-  }, []);
+  }, [setFontSize]);
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-background text-foreground">
@@ -743,7 +532,6 @@ print("Hello,", name)
                       value={code}
                       onChange={setCode}
                       colorScheme={resolvedTheme === "dark" ? "dark" : "light"}
-                      onReady={() => setEditorReady(true)}
                       fontSize={fontSize}
                     />
                   </div>
@@ -849,7 +637,7 @@ print("Hello,", name)
                       ref={termRef}
                       waitingInput={waitingInput}
                       onSubmitLine={(line) => {
-                        sendInputLine(line);
+                        sendInput(line);
                       }}
                       onCtrlC={() => onStop()}
                       theme={resolvedTheme === "dark" ? "dark" : "light"}

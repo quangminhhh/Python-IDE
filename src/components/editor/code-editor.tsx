@@ -16,6 +16,7 @@ export type CodeEditorProps = {
   height?: number | string;
   colorScheme?: "light" | "dark";
   onReady?: () => void; // NEW
+  fontSize?: number; // NEW
 };
 
 export function CodeEditor({
@@ -25,6 +26,7 @@ export function CodeEditor({
   height = "100%",
   colorScheme = "light",
   onReady, // NEW
+  fontSize = 14, // NEW
 }: CodeEditorProps) {
   const monacoTheme = colorScheme === "dark" ? "vs-dark" : "vs";
 
@@ -36,7 +38,7 @@ export function CodeEditor({
         value={value}
         onChange={(v) => onChange(v ?? "")}
         options={{
-          fontSize: 14,
+          fontSize: fontSize,
           minimap: { enabled: false },
           scrollBeyondLastLine: false,
           wordWrap: "on",

@@ -7,7 +7,8 @@ import { Card } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Play, Square, Share2, Moon, Sun, Copy, GripVertical } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Play, Square, Share2, Moon, Sun, Copy, GripVertical, Plus, Minus, RotateCcw } from "lucide-react";
 import { CodeEditor } from "@/components/editor/code-editor";
 import { PythonLogo } from "@/components/ui/python-logo";
 import { AutoSaveIndicator } from "@/components/ui/auto-save-indicator";
@@ -52,7 +53,12 @@ type WorkerOut =
 
 const LS_KEY = "python-ide:code:v1";
 const LS_RESIZE_KEY = "python-ide:resize:v1";
+const LS_FONT_SIZE_KEY = "python-ide:font-size:v1";
 const DEBOUNCE_MS = 400;
+
+// Font size configuration
+const FONT_SIZES = [10, 11, 12, 13, 14, 15, 16, 17, 18, 20, 22, 24] as const;
+const DEFAULT_FONT_SIZE = 14;
 
 export function AppShell() {
   const { resolvedTheme, setTheme } = useTheme();
@@ -62,6 +68,7 @@ export function AppShell() {
   // Resize state
   const [leftWidth, setLeftWidth] = React.useState(50); // Phần trăm chiều rộng của editor
   const [isResizing, setIsResizing] = React.useState(false);
+  const [fontSize, setFontSize] = React.useState(DEFAULT_FONT_SIZE);
   const resizeRef = React.useRef<HTMLDivElement>(null);
 
   // Khôi phục tỷ lệ resize từ localStorage
@@ -72,6 +79,21 @@ export function AppShell() {
         const parsed = parseFloat(saved);
         if (!isNaN(parsed) && parsed >= 25 && parsed <= 75) {
           setLeftWidth(parsed);
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  // Khôi phục font size từ localStorage
+  React.useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem(LS_FONT_SIZE_KEY);
+      if (saved) {
+        const parsed = parseInt(saved);
+        if (!isNaN(parsed) && FONT_SIZES.includes(parsed as typeof FONT_SIZES[number])) {
+          setFontSize(parsed);
         }
       }
     } catch {
@@ -90,6 +112,18 @@ export function AppShell() {
     }, DEBOUNCE_MS);
     return () => clearTimeout(id);
   }, [leftWidth]);
+
+  // Lưu font size vào localStorage
+  React.useEffect(() => {
+    const id = setTimeout(() => {
+      try {
+        window.localStorage.setItem(LS_FONT_SIZE_KEY, fontSize.toString());
+      } catch {
+        // ignore
+      }
+    }, DEBOUNCE_MS);
+    return () => clearTimeout(id);
+  }, [fontSize]);
 
   // Code & console
   const [code, setCode] = React.useState<string>(`# Python console demo
@@ -427,6 +461,25 @@ print("Hello,", name)
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
+  // Font size controls
+  const increaseFontSize = React.useCallback(() => {
+    const currentIndex = FONT_SIZES.indexOf(fontSize as typeof FONT_SIZES[number]);
+    if (currentIndex < FONT_SIZES.length - 1) {
+      setFontSize(FONT_SIZES[currentIndex + 1]);
+    }
+  }, [fontSize]);
+
+  const decreaseFontSize = React.useCallback(() => {
+    const currentIndex = FONT_SIZES.indexOf(fontSize as typeof FONT_SIZES[number]);
+    if (currentIndex > 0) {
+      setFontSize(FONT_SIZES[currentIndex - 1]);
+    }
+  }, [fontSize]);
+
+  const resetFontSize = React.useCallback(() => {
+    setFontSize(DEFAULT_FONT_SIZE);
+  }, []);
+
   return (
     <div className="flex h-full flex-col overflow-hidden bg-background text-foreground">
       <header className="border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
@@ -437,169 +490,375 @@ print("Hello,", name)
           </div>
           <Separator orientation="vertical" className="h-6" />
           <div className="ml-auto flex items-center gap-2">
-            <Button
-              size="sm"
-              variant="ghost"
-              className="premium-button premium-transition-opacity opacity-70 hover:opacity-100 press-effect"
-              onClick={toggleTheme}
-            >
-              {mounted ? (resolvedTheme === "dark" ? <Sun className="size-4" /> : <Moon className="size-4" />) : null}
-              <span className="hidden sm:inline ml-2">Theme</span>
-            </Button>
+            {/* Nhóm hành động phiên làm việc - Run/Stop */}
+            <div className="flex items-center gap-1">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    id="run-btn"
+                    size="sm"
+                    className="premium-button bg-emerald-600 hover:bg-emerald-700 text-white font-medium premium-transition-colors press-effect disabled:opacity-50 disabled:cursor-not-allowed"
+                    onClick={onRun}
+                    disabled={isRunning}
+                  >
+                    <Play className="size-4" />
+                    <span className="ml-2">{isRunning ? 'Running...' : 'Run'}</span>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>{isRunning ? 'Code is currently running' : 'Run Python code (Ctrl+Enter)'}</p>
+                </TooltipContent>
+              </Tooltip>
 
-            <Button
-              size="sm"
-              variant="ghost"
-              className="premium-button premium-transition-opacity opacity-70 hover:opacity-100 press-effect"
-              onClick={openShare}
-            >
-              <Share2 className="size-4" />
-              <span className="hidden sm:inline ml-2">Share</span>
-            </Button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    id="stop-btn"
+                    size="sm"
+                    variant="ghost"
+                    className="premium-button text-destructive premium-transition-opacity opacity-70 hover:opacity-100 press-effect disabled:opacity-30 disabled:cursor-not-allowed"
+                    onClick={onStop}
+                    disabled={!isRunning}
+                  >
+                    <Square className="size-4" />
+                    <span className="hidden sm:inline ml-2">Stop</span>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>{isRunning ? 'Stop execution (Escape)' : 'No code running'}</p>
+                </TooltipContent>
+              </Tooltip>
+            </div>
 
+            {/* Separator giữa nhóm hành động chính và phụ */}
             <div className="h-6 w-px bg-border" />
 
-            <Button
-              id="run-btn"
-              size="sm"
-              className="premium-button bg-emerald-600 hover:bg-emerald-700 text-white font-medium premium-transition-colors press-effect disabled:opacity-50 disabled:cursor-not-allowed"
-              onClick={onRun}
-              disabled={isRunning}
-            >
-              <Play className="size-4" />
-              <span className="ml-2">{isRunning ? 'Running...' : 'Run'}</span>
-            </Button>
+            {/* Nhóm hành động meta - Theme/Share với độ nổi bật thấp hơn */}
+            <div className="flex items-center gap-1">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="premium-button premium-transition-opacity opacity-60 hover:opacity-90 press-effect"
+                    onClick={toggleTheme}
+                  >
+                    {mounted ? (resolvedTheme === "dark" ? <Sun className="size-4" /> : <Moon className="size-4" />) : null}
+                    <span className="hidden md:inline ml-2">Theme</span>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Switch to {resolvedTheme === "dark" ? "light" : "dark"} theme</p>
+                </TooltipContent>
+              </Tooltip>
 
-            <Button
-              id="stop-btn"
-              size="sm"
-              variant="ghost"
-              className="premium-button text-destructive premium-transition-opacity opacity-70 hover:opacity-100 press-effect"
-              onClick={onStop}
-            >
-              <Square className="size-4" />
-              <span className="hidden sm:inline ml-2">Stop</span>
-            </Button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="premium-button premium-transition-opacity opacity-60 hover:opacity-90 press-effect"
+                    onClick={openShare}
+                  >
+                    <Share2 className="size-4" />
+                    <span className="hidden md:inline ml-2">Share</span>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Share code via URL</p>
+                </TooltipContent>
+              </Tooltip>
+            </div>
           </div>
         </div>
       </header>
 
       <main className="flex-1 min-h-0 overflow-hidden">
-        <div className={`flex h-full ${isMobile ? 'flex-col' : 'flex-row'} ${isResizing ? 'select-none' : ''}`}>
-          {/* Editor */}
-          <div
-            className={`${isMobile ? 'h-1/2' : 'h-full'} overflow-hidden ${!isResizing ? 'premium-transition' : ''}`}
-            style={!isMobile ? { width: `${leftWidth}%` } : {}}
-          >
-            <Card className="h-full border-0 border-r rounded-none shadow-none bg-card py-0">
-              <div className="flex h-full min-h-0 flex-col">
-                <div className="border-b border-border bg-muted/30 px-6 py-3 flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="text-sm font-semibold text-foreground">Code Editor</div>
-                    <div className="text-xs text-muted-foreground font-mono bg-muted px-2 py-1 rounded-md">Python</div>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <AutoSaveIndicator
-                      status={saveStatus}
-                    />
+        <div className={`flex h-full ${isMobile ? 'flex-col' : 'flex-col'} ${isResizing ? 'select-none' : ''}`}>
+          {/* Top Header Row - Shared between Editor and Console */}
+          {!isMobile && (
+            <div className="flex h-12 border-b border-border bg-muted/20">
+              {/* Editor Header */}
+              <div
+                className="flex items-center justify-between border-r border-border bg-muted/30 px-6 py-3 premium-transition-all"
+                style={{ width: `${leftWidth}%` }}
+              >
+                <div className="flex items-center gap-3">
+                  <div className="text-sm font-semibold text-foreground">Code Editor</div>
+                  <div className="text-xs text-muted-foreground font-mono bg-muted px-2 py-1 rounded-md">Python</div>
+                </div>
+                <div className="flex items-center gap-3 premium-transition-transform">
+                  <AutoSaveIndicator status={saveStatus} />
+                </div>
+              </div>
+
+              {/* Font Size Control - Expandable from Center */}
+              <div className="group relative flex items-center justify-center bg-border/30 premium-transition-all duration-300 hover:w-32"
+                   style={{ width: '1px' }}>
+                {/* Collapsed State - Just Font Size Display */}
+                <div className="absolute inset-0 flex items-center justify-center group-hover:opacity-0 premium-transition-opacity duration-300">
+                  <div className="bg-background/90 border border-border/60 rounded px-2 py-1 text-xs font-mono text-muted-foreground shadow-sm">
+                    {fontSize}
                   </div>
                 </div>
-                <div className="flex-1 min-h-0">
-                  <CodeEditor
-                    value={code}
-                    onChange={setCode}
-                    colorScheme={resolvedTheme === "dark" ? "dark" : "light"}
-                    onReady={() => setEditorReady(true)}
+
+                {/* Expanded State - Full Controls */}
+                <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 premium-transition-opacity duration-300 delay-150">
+                  <div className="bg-background/95 backdrop-blur-sm border border-border/60 rounded-lg shadow-lg flex items-center gap-1 py-1.5 px-2">
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          onClick={decreaseFontSize}
+                          disabled={FONT_SIZES.indexOf(fontSize as typeof FONT_SIZES[number]) <= 0}
+                          className="flex items-center justify-center w-5 h-5 rounded premium-transition-all hover:bg-muted/80 active:bg-muted disabled:opacity-30 disabled:cursor-not-allowed text-foreground/70 hover:text-foreground press-effect"
+                        >
+                          <Minus className="w-2.5 h-2.5" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>Decrease font size</p>
+                      </TooltipContent>
+                    </Tooltip>
+
+                    <div className="flex items-center justify-center min-w-[1.25rem] h-5 text-[10px] font-mono text-muted-foreground px-1">
+                      {fontSize}
+                    </div>
+
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          onClick={increaseFontSize}
+                          disabled={FONT_SIZES.indexOf(fontSize as typeof FONT_SIZES[number]) >= FONT_SIZES.length - 1}
+                          className="flex items-center justify-center w-5 h-5 rounded premium-transition-all hover:bg-muted/80 active:bg-muted disabled:opacity-30 disabled:cursor-not-allowed text-foreground/70 hover:text-foreground press-effect"
+                        >
+                          <Plus className="w-2.5 h-2.5" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>Increase font size</p>
+                      </TooltipContent>
+                    </Tooltip>
+
+                    <div className="w-px h-3 bg-border/60 mx-0.5" />
+
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          onClick={resetFontSize}
+                          disabled={fontSize === DEFAULT_FONT_SIZE}
+                          className="flex items-center justify-center w-5 h-5 rounded premium-transition-all hover:bg-muted/80 active:bg-muted disabled:opacity-30 disabled:cursor-not-allowed text-foreground/70 hover:text-foreground press-effect"
+                        >
+                          <RotateCcw className="w-2.5 h-2.5" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>Reset to default ({DEFAULT_FONT_SIZE}px)</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </div>
+                </div>
+              </div>
+
+              {/* Console Header */}
+              <div
+                className="flex items-center justify-between bg-muted/30 px-6 py-3 premium-transition-all"
+                style={{ width: `${100 - leftWidth}%` }}
+              >
+                <div className="flex items-center gap-4 premium-transition-transform">
+                  <div className="flex items-center gap-3">
+                    <div className="text-sm font-semibold text-foreground">Console</div>
+                    <div className={`status-indicator ${
+                      waitingInput ? 'waiting' : isRunning ? 'running' : 'ready'
+                    }`}>
+                      {waitingInput ? 'Waiting for input' : isRunning ? 'Running' : 'Ready'}
+                    </div>
+                  </div>
+                  <ExecutionTime
+                    startTime={executionStartTime}
+                    endTime={executionEndTime}
+                    isRunning={isRunning}
                   />
                 </div>
-              </div>
-            </Card>
-          </div>
+                <div className="flex gap-2 premium-transition-transform">
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="premium-button premium-transition-opacity opacity-70 hover:opacity-100 press-effect"
+                        onClick={onCopyOut}
+                        disabled={!output.trim()}
+                      >
+                        <Copy className="size-3 mr-2" />
+                        Copy
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>{output.trim() ? 'Copy console output' : 'No output to copy'}</p>
+                    </TooltipContent>
+                  </Tooltip>
 
-          {/* Resize Handle - Professional & Intuitive */}
-          {!isMobile && (
-            <div
-              ref={resizeRef}
-              className={`group relative flex w-1 cursor-col-resize items-center justify-center premium-transition-opacity bg-border/50 hover:bg-border ${
-                isResizing ? 'bg-primary/20' : ''
-              }`}
-              onMouseDown={handleMouseDown}
-            >
-              {/* Visual indicator - appears on hover */}
-              <div className={`absolute inset-y-1/2 -translate-y-1/2 w-4 h-8 bg-background border border-border rounded-md shadow-sm flex items-center justify-center premium-transition-opacity ${
-                isResizing ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
-              }`}>
-                <GripVertical className="h-3 w-3 text-muted-foreground" />
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="premium-button premium-transition-opacity opacity-70 hover:opacity-100 press-effect disabled:opacity-30 disabled:cursor-not-allowed"
+                        onClick={onClear}
+                        disabled={!output.trim() && !isRunning}
+                      >
+                        Clear
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>{output.trim() || isRunning ? 'Clear console and stop execution' : 'Console is already empty'}</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </div>
               </div>
-
-              {/* Extended hover area for better UX */}
-              <div className="absolute inset-y-0 -left-2 -right-2" />
             </div>
-          )}
-
-          {/* Console */}
-          <div
-            className={`${isMobile ? 'h-1/2' : 'h-full'} overflow-hidden ${!isResizing ? 'premium-transition' : ''}`}
-            style={!isMobile ? { width: `${100 - leftWidth}%` } : {}}
-          >
-            <Card className="h-full border-0 rounded-none shadow-none bg-card py-0">
-              <div className="flex h-full min-h-0 flex-col">
-                <div className="flex items-center justify-between border-b border-border bg-muted/30 px-6 py-3">
-                  <div className="flex items-center gap-4">
-                    <div className="flex items-center gap-3">
-                      <div className="text-sm font-semibold text-foreground">Console</div>
-                      <div className={`status-indicator ${
-                        waitingInput
-                          ? 'waiting'
-                          : isRunning
-                          ? 'running'
-                          : 'ready'
-                      }`}>
-                        {waitingInput ? 'Waiting for input' : isRunning ? 'Running' : 'Ready'}
+          )}          {/* Bottom Content Row - Editor and Console */}
+          <div className={`flex ${isMobile ? 'flex-col' : 'flex-row'} flex-1 min-h-0`}>
+            {/* Editor */}
+            <div
+              className={`${isMobile ? 'h-1/2' : 'h-full'} overflow-hidden ${!isResizing ? 'premium-transition' : ''}`}
+              style={!isMobile ? { width: `${leftWidth}%` } : {}}
+            >
+              <Card className="h-full border-0 border-r rounded-none shadow-none bg-card py-0">
+                <div className="flex h-full min-h-0 flex-col">
+                  {/* Mobile Editor Header */}
+                  {isMobile && (
+                    <div className="border-b border-border bg-muted/30 px-6 py-3 flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="text-sm font-semibold text-foreground">Code Editor</div>
+                        <div className="text-xs text-muted-foreground font-mono bg-muted px-2 py-1 rounded-md">Python</div>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <AutoSaveIndicator status={saveStatus} />
                       </div>
                     </div>
-                    <ExecutionTime
-                      startTime={executionStartTime}
-                      endTime={executionEndTime}
-                      isRunning={isRunning}
+                  )}
+                  <div className="flex-1 min-h-0">
+                    <CodeEditor
+                      value={code}
+                      onChange={setCode}
+                      colorScheme={resolvedTheme === "dark" ? "dark" : "light"}
+                      onReady={() => setEditorReady(true)}
+                      fontSize={fontSize}
                     />
                   </div>
-                  <div className="flex gap-2">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="premium-button premium-transition-opacity opacity-70 hover:opacity-100 press-effect"
-                      onClick={onCopyOut}
-                    >
-                      <Copy className="size-3 mr-2" />
-                      Copy
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="premium-button premium-transition-opacity opacity-70 hover:opacity-100 press-effect"
-                      onClick={onClear}
-                    >
-                      Clear
-                    </Button>
-                  </div>
+                </div>
+              </Card>
+            </div>
+
+            {/* Resize Handle - Shortened to not overlap with top header */}
+            {!isMobile && (
+              <div
+                ref={resizeRef}
+                className={`group relative flex w-1 cursor-col-resize items-center justify-center premium-transition-opacity bg-border/50 hover:bg-border ${
+                  isResizing ? 'bg-primary/20' : ''
+                }`}
+                onMouseDown={handleMouseDown}
+              >
+                {/* Visual indicator */}
+                <div className={`absolute inset-y-1/2 -translate-y-1/2 w-4 h-8 bg-background border border-border rounded-md shadow-sm flex items-center justify-center premium-transition-opacity ${
+                  isResizing ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+                }`}>
+                  <GripVertical className="h-3 w-3 text-muted-foreground" />
                 </div>
 
-                {/* VÙNG CUỘN — phải có min-h-0 */}
-                <div className="flex-1 min-h-0 overflow-hidden">
-                  <TermConsole
-                    ref={termRef}
-                    waitingInput={waitingInput}
-                    onSubmitLine={(line) => {
-                      // gửi line vào SAB như trước
-                      sendInputLine(line);
-                    }}
-                    onCtrlC={() => onStop()} // Ctrl+C để Stop
-                    theme={resolvedTheme === "dark" ? "dark" : "light"}
-                  />
-                </div>
+                {/* Extended hover area */}
+                <div className="absolute inset-y-0 -left-2 -right-2" />
               </div>
-            </Card>
+            )}
+
+            {/* Console */}
+            <div
+              className={`${isMobile ? 'h-1/2' : 'h-full'} overflow-hidden ${!isResizing ? 'premium-transition' : ''}`}
+              style={!isMobile ? { width: `${100 - leftWidth}%` } : {}}
+            >
+              <Card className="h-full border-0 rounded-none shadow-none bg-card py-0">
+                <div className="flex h-full min-h-0 flex-col">
+                  {/* Mobile Console Header */}
+                  {isMobile && (
+                    <div className="flex items-center justify-between border-b border-border bg-muted/30 px-6 py-3">
+                      <div className="flex items-center gap-4">
+                        <div className="flex items-center gap-3">
+                          <div className="text-sm font-semibold text-foreground">Console</div>
+                          <div className={`status-indicator ${
+                            waitingInput ? 'waiting' : isRunning ? 'running' : 'ready'
+                          }`}>
+                            {waitingInput ? 'Waiting for input' : isRunning ? 'Running' : 'Ready'}
+                          </div>
+                        </div>
+                        <ExecutionTime
+                          startTime={executionStartTime}
+                          endTime={executionEndTime}
+                          isRunning={isRunning}
+                        />
+                      </div>
+                      <div className="flex gap-2">
+                        {/* Font Size Controls for Mobile */}
+                        <div className="flex items-center gap-1 mr-2">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 w-7 p-0"
+                            onClick={decreaseFontSize}
+                            disabled={FONT_SIZES.indexOf(fontSize as typeof FONT_SIZES[number]) <= 0}
+                          >
+                            <Minus className="size-3" />
+                          </Button>
+                          <div className="text-xs font-mono text-muted-foreground min-w-[1.5rem] text-center">
+                            {fontSize}
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 w-7 p-0"
+                            onClick={increaseFontSize}
+                            disabled={FONT_SIZES.indexOf(fontSize as typeof FONT_SIZES[number]) >= FONT_SIZES.length - 1}
+                          >
+                            <Plus className="size-3" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 w-7 p-0"
+                            onClick={resetFontSize}
+                            disabled={fontSize === DEFAULT_FONT_SIZE}
+                          >
+                            <RotateCcw className="size-3" />
+                          </Button>
+                        </div>
+                        <div className="h-6 w-px bg-border" />
+                        <Button variant="ghost" size="sm" onClick={onCopyOut} disabled={!output.trim()}>
+                          <Copy className="size-3 mr-2" />
+                          Copy
+                        </Button>
+                        <Button variant="ghost" size="sm" onClick={onClear} disabled={!output.trim() && !isRunning}>
+                          Clear
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Console Content */}
+                  <div className="flex-1 min-h-0 overflow-hidden">
+                    <TermConsole
+                      ref={termRef}
+                      waitingInput={waitingInput}
+                      onSubmitLine={(line) => {
+                        sendInputLine(line);
+                      }}
+                      onCtrlC={() => onStop()}
+                      theme={resolvedTheme === "dark" ? "dark" : "light"}
+                      fontSize={fontSize}
+                    />
+                  </div>
+                </div>
+              </Card>
+            </div>
           </div>
         </div>
       </main>

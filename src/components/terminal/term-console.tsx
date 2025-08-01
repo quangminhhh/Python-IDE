@@ -14,10 +14,11 @@ type Props = {
   onSubmitLine: (line: string) => void; // không kèm \n
   onCtrlC?: () => void;
   theme?: "light" | "dark";
+  fontSize?: number; // NEW
 };
 
 export const TermConsole = React.forwardRef<TermConsoleHandle, Props>(
-  ({ waitingInput, onSubmitLine, onCtrlC, theme = "light" }, ref) => {
+  ({ waitingInput, onSubmitLine, onCtrlC, theme = "light", fontSize = 14 }, ref) => {
     const containerRef = React.useRef<HTMLDivElement | null>(null);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const termRef = React.useRef<any | null>(null);
@@ -85,7 +86,7 @@ export const TermConsole = React.forwardRef<TermConsoleHandle, Props>(
         term = new Terminal({
           fontFamily:
             "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace",
-          fontSize: 15.5, // Tăng từ 13 lên 14
+          fontSize: fontSize,
           cursorBlink: true,
           cursorStyle: 'bar', // Con trỏ hình chữ I
           convertEol: false,
@@ -174,6 +175,19 @@ export const TermConsole = React.forwardRef<TermConsoleHandle, Props>(
     React.useEffect(() => {
       if (termRef.current) applyTheme(termRef.current, theme);
     }, [theme, applyTheme]);
+
+    // Cập nhật fontSize động
+    React.useEffect(() => {
+      if (termRef.current && termRef.current.options) {
+        termRef.current.options.fontSize = fontSize;
+        if (fitRef.current) {
+          // Re-fit sau khi thay đổi fontSize
+          try {
+            fitRef.current.fit();
+          } catch {}
+        }
+      }
+    }, [fontSize]);
 
     // Khi chuyển sang trạng thái chờ input() -> đảm bảo focus để thấy con trỏ
     React.useEffect(() => {

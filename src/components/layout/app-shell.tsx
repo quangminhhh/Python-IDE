@@ -310,6 +310,8 @@ print("Hello,", name)
     if (i8 && workerRef.current) {
       i8[0] = 2; // SIGINT
       append("^C\n");
+      setIsRunning(false); // Reset running state immediately
+      setExecutionEndTime(Date.now());
       setTimeout(() => {
         if (workerRef.current) {
           append("[force stop]\n");
